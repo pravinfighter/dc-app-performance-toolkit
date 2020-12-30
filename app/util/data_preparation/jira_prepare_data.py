@@ -2,12 +2,13 @@ import random
 import string
 
 import urllib3
+import datetime
 
 
 from util.conf import JIRA_SETTINGS
 from util.api.jira_clients import JiraRestClient
 from util.project_paths import JIRA_DATASET_JQLS, JIRA_DATASET_SCRUM_BOARDS, JIRA_DATASET_KANBAN_BOARDS, \
-    JIRA_DATASET_USERS, JIRA_DATASET_ISSUES, JIRA_DATASET_PROJECTS, JIRA_DATASET_CUSTOM_ISSUES
+    JIRA_DATASET_USERS, JIRA_DATASET_ISSUES, JIRA_DATASET_PROJECTS, JIRA_DATASET_CUSTOM_ISSUES, JIRA_DATASET_VERSIONS
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -18,6 +19,7 @@ ISSUES = "issues"
 JQLS = "jqls"
 PROJECTS = "projects"
 CUSTOM_ISSUES = "custom_issues"
+VERSIONS = "versions"
 
 DEFAULT_USER_PASSWORD = 'password'
 DEFAULT_USER_PREFIX = 'performance_'
@@ -44,17 +46,18 @@ def generate_perf_users(cur_perf_user, api):
     else:
         while len(cur_perf_user) < config_perf_users_count:
             if errors_count >= ERROR_LIMIT:
-                raise Exception(f'ERROR: Maximum error limit reached {errors_count}/{ERROR_LIMIT}. '
-                                f'Please check the errors in bzt.log')
+                raise Exception(f'Maximum error limit reached {errors_count}/{ERROR_LIMIT}. '
+                                f'Please check the errors above')
             username = f"{DEFAULT_USER_PREFIX}{generate_random_string(10)}"
             try:
-                user = api.create_user(name=username, password=DEFAULT_USER_PASSWORD)
+                user = api.create_user(
+                    name=username, password=DEFAULT_USER_PASSWORD)
                 print(f"User {user['name']} is created, number of users to create is "
                       f"{config_perf_users_count - len(cur_perf_user)}")
                 cur_perf_user.append(user)
             # To avoid rate limit error from server. Execution should not be stopped after catch error from server.
             except Exception as error:
-                print(f"Warning: Create jira user error: {error}. Retry limits {errors_count}/{ERROR_LIMIT}")
+                print(f"{error}. Error limits {errors_count}/{ERROR_LIMIT}")
                 errors_count = errors_count + 1
         print('All performance test users were successfully created')
         return cur_perf_user
@@ -76,14 +79,19 @@ def write_test_data_to_files(datasets):
     users = [f"{user['name']},{DEFAULT_USER_PASSWORD}" for user in datasets[USERS]]
     __write_to_file(JIRA_DATASET_USERS, users)
 
-    issues = [f"{issue['key']},{issue['id']},{issue['key'].split('-')[0]}" for issue in datasets[ISSUES]]
+    issues = [
+        f"{issue['key']},{issue['id']},{issue['key'].split('-')[0]}" for issue in datasets[ISSUES]]
     __write_to_file(JIRA_DATASET_ISSUES, issues)
 
-    issues = [f"{issue['key']},{issue['id']},{issue['key'].split('-')[0]}" for issue in datasets[CUSTOM_ISSUES]]
+    issues = [
+        f"{issue['key']},{issue['id']},{issue['key'].split('-')[0]}" for issue in datasets[CUSTOM_ISSUES]]
     __write_to_file(JIRA_DATASET_CUSTOM_ISSUES, issues)
 
     keys = datasets[PROJECTS]
     __write_to_file(JIRA_DATASET_PROJECTS, keys)
+
+    versions = datasets[VERSIONS]
+    __write_to_file(JIRA_DATASET_VERSIONS, versions)
 
 
 def __write_to_file(file_path, items):
@@ -96,14 +104,17 @@ def __create_data_set(jira_api):
     dataset = dict()
     dataset[USERS] = __get_users(jira_api)
     perf_user = random.choice(dataset[USERS])
-    perf_user_api = JiraRestClient(JIRA_SETTINGS.server_url, perf_user['name'], DEFAULT_USER_PASSWORD)
+    perf_user_api = JiraRestClient(
+        JIRA_SETTINGS.server_url, perf_user['name'], DEFAULT_USER_PASSWORD)
     software_projects = __get_software_projects(perf_user_api)
     dataset[PROJECTS] = software_projects
     dataset[ISSUES] = __get_issues(perf_user_api, software_projects)
-    dataset[CUSTOM_ISSUES] = __get_custom_issues(perf_user_api, JIRA_SETTINGS.custom_dataset_query)
+    dataset[CUSTOM_ISSUES] = __get_custom_issues(
+        perf_user_api, JIRA_SETTINGS.custom_dataset_query)
     dataset[SCRUM_BOARDS] = __get_boards(perf_user_api, 'scrum')
     dataset[KANBAN_BOARDS] = __get_boards(perf_user_api, 'kanban')
     dataset[JQLS] = __generate_jqls(count=150)
+    dataset[VERSIONS] = __get_project_versions(perf_user_api)
     print(f'Users count: {len(dataset[USERS])}')
     print(f'Projects: {len(dataset[PROJECTS])}')
     print(f'Issues count: {len(dataset[ISSUES])}')
@@ -112,6 +123,7 @@ def __create_data_set(jira_api):
     print(f'Jqls count: {len(dataset[JQLS])}')
     print('------------------------')
     print(f'Custom dataset issues: {len(dataset[CUSTOM_ISSUES])}')
+    print(f'Versions count: {len(dataset[VERSIONS])}')
 
     return dataset
 
@@ -123,7 +135,8 @@ def __get_issues(jira_api, software_projects):
         jql=f"project in ({jql_projects_str}) AND status != Closed order by key", max_results=8000
     )
     if not issues:
-        raise SystemExit(f"There are no issues in Jira accessible by a random performance user: {jira_api.user}")
+        raise SystemExit(
+            f"There are no issues in Jira accessible by a random performance user: {jira_api.user}")
 
     return issues
 
@@ -149,10 +162,12 @@ def __get_boards(jira_api, board_type):
 
 
 def __get_users(jira_api):
-    perf_users = jira_api.get_users(username=DEFAULT_USER_PREFIX, max_results=performance_users_count)
+    perf_users = jira_api.get_users(
+        username=DEFAULT_USER_PREFIX, max_results=performance_users_count)
     users = generate_perf_users(api=jira_api, cur_perf_user=perf_users)
     if not users:
-        raise SystemExit(f"There are no users in Jira accessible by a random performance user: {jira_api.user}")
+        raise SystemExit(
+            f"There are no users in Jira accessible by a random performance user: {jira_api.user}")
 
     return users
 
@@ -160,11 +175,26 @@ def __get_users(jira_api):
 def __get_software_projects(jira_api):
     all_projects = jira_api.get_all_projects()
     software_projects = \
-        [f"{project['key']},{project['id']}" for project in all_projects if 'software' == project.get('projectTypeKey')]
+        [f"{project['key']},{project['id']}" for project in all_projects if 'software' ==
+            project.get('projectTypeKey')]
     if not software_projects:
         raise SystemExit(
             f"There are no software projects in Jira accessible by a random performance user: {jira_api.user}")
     return software_projects
+
+
+def __get_project_versions(jira_api):
+    all_versions = jira_api.get_all_versions()
+    project_versions = \
+        [f"{version['id']}" for version in all_versions if version['released'] == False and
+         version['archived'] == False and
+         (("startDate" not in version) or
+          ("startDate" in version and datetime.datetime.strptime(version['startDate'], "%Y-%m-%d") <= datetime.datetime.now()))
+         ]
+    if not project_versions:
+        raise SystemExit(
+            f"There are no unreleased versions available across projects")
+    return project_versions
 
 
 def __check_current_language(jira_api):
@@ -178,7 +208,8 @@ def __check_for_admin_permissions(jira_api):
     user_permissions = jira_api.get_user_permissions()
     if not (user_permissions['permissions']['ADMINISTER']['havePermission'] or
             user_permissions['permissions']['SYSTEM_ADMIN']['havePermission']):
-        raise SystemExit(f"The '{jira_api.user}' user does not have admin permissions.")
+        raise SystemExit(
+            f"The '{jira_api.user}' user does not have admin permissions.")
 
 
 def main():
@@ -187,7 +218,8 @@ def main():
     url = JIRA_SETTINGS.server_url
     print("Server url: ", url)
 
-    client = JiraRestClient(url, JIRA_SETTINGS.admin_login, JIRA_SETTINGS.admin_password)
+    client = JiraRestClient(url, JIRA_SETTINGS.admin_login,
+                            JIRA_SETTINGS.admin_password)
 
     __check_for_admin_permissions(client)
     __check_current_language(client)
