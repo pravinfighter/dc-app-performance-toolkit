@@ -9313,7 +9313,7 @@ vars.put(&quot;extend_action&quot;, extend_action);
               </JSR223PreProcessor>
               <hashTree/>
             </hashTree>
-            <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="jmeter_release_version" enabled="false">
+            <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="jmeter_release_version" enabled="true">
               <boolProp name="TransactionController.includeTimers">false</boolProp>
               <boolProp name="TransactionController.parent">true</boolProp>
             </TransactionController>
